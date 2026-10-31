@@ -49,6 +49,7 @@ Separate evidence from assumptions. Return JSON only, with exactly this shape:
   "contact_role": "",
   "contact_company": "",
   "contact_country": "",
+  "contact_email": "",
   "your_company": "{_safe(your_company)}",
   "your_country": "{_safe(your_country)}",
   "meeting_context": "",
@@ -71,12 +72,16 @@ User's meeting notes:
         api_key=api_key,
     )
     allowed = {field.name for field in fields(ConnectionDraft)}
-    clean = {key: data.get(key, [] if key == "confidence_notes" else "") for key in allowed}
+    clean = {
+        key: data.get(key, [] if key == "confidence_notes" else "") for key in allowed
+    }
     clean["confidence_notes"] = _string_list(clean["confidence_notes"])
     return ConnectionDraft(**clean)
 
 
-def generate_poc_pack(connection: dict[str, Any], *, api_key: str) -> tuple[PocPlan, str]:
+def generate_poc_pack(
+    connection: dict[str, Any], *, api_key: str
+) -> tuple[PocPlan, str]:
     evidence = {
         key: connection.get(key, "")
         for key in (
@@ -84,6 +89,7 @@ def generate_poc_pack(connection: dict[str, Any], *, api_key: str) -> tuple[PocP
             "contact_role",
             "contact_company",
             "contact_country",
+            "contact_email",
             "your_company",
             "your_country",
             "meeting_context",
@@ -122,7 +128,9 @@ Evidence:
 {json.dumps(evidence, ensure_ascii=False)}
 """.strip()
 
-    data = _generate_json(prompt=prompt, image_bytes=None, mime_type=None, api_key=api_key)
+    data = _generate_json(
+        prompt=prompt, image_bytes=None, mime_type=None, api_key=api_key
+    )
     raw_plan = data.get("poc_plan")
     if not isinstance(raw_plan, dict):
         raise AiServiceError("Gemma returned no POC plan.")
@@ -138,15 +146,24 @@ Evidence:
         "risks_to_verify",
     }
     for key in allowed:
-        value = raw_plan.get(key, [] if key in list_fields or key == "milestones" else "")
+        value = raw_plan.get(
+            key, [] if key in list_fields or key == "milestones" else ""
+        )
         clean[key] = _string_list(value) if key in list_fields else value
 
     milestones = clean.get("milestones")
-    clean["milestones"] = [
-        {"when": str(item.get("when", "")), "deliverable": str(item.get("deliverable", ""))}
-        for item in milestones
-        if isinstance(item, dict)
-    ] if isinstance(milestones, list) else []
+    clean["milestones"] = (
+        [
+            {
+                "when": str(item.get("when", "")),
+                "deliverable": str(item.get("deliverable", "")),
+            }
+            for item in milestones
+            if isinstance(item, dict)
+        ]
+        if isinstance(milestones, list)
+        else []
+    )
 
     return PocPlan(**clean), str(data.get("follow_up_message", "")).strip()
 
@@ -203,7 +220,9 @@ def _parse_json(text: str) -> dict[str, Any]:
         try:
             value = json.loads(cleaned[start : end + 1])
         except json.JSONDecodeError as exc:
-            raise AiServiceError("Gemma returned malformed JSON. Please try again.") from exc
+            raise AiServiceError(
+                "Gemma returned malformed JSON. Please try again."
+            ) from exc
     if not isinstance(value, dict):
         raise AiServiceError("Gemma returned an unexpected response shape.")
     return value

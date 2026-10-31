@@ -13,11 +13,21 @@ The central idea is simple: ecosystems should measure what connections produce, 
 
 ## Main workflow
 
-1. **Capture:** Add meeting notes and optionally an image.
-2. **Clarify:** Gemma extracts the contact, organizations, countries, collaboration idea, and next step.
-3. **Review:** The user corrects the extracted information before saving it.
-4. **Scope:** Gemma proposes a narrow 2–8 week POC with owners, milestones, and success measures.
-5. **Convert:** Track the connection through follow-up, pilot, partnership, investment, or expansion.
+1. **Set your profile once:** Save your company and country in the sidebar. Every new connection reuses it automatically.
+2. **Capture:** Add meeting notes and optionally an image.
+3. **Clarify:** Gemma extracts the contact, job position, email, organizations, countries, collaboration idea, and next step.
+4. **Review:** The user corrects the extracted information before saving it. Unknown fields stay blank and can be edited later.
+5. **Scope:** Gemma proposes a narrow 2–8 week POC with owners, milestones, and success measures.
+6. **Send:** Open the drafted follow-up directly in your email app or Gmail, prefilled with the recipient, subject, and body.
+7. **Convert:** Track the connection through follow-up, pilot, partnership, investment, or expansion.
+
+## Pages
+
+- **Dashboard** — pipeline overview, recorded value, and recent activity.
+- **Capture connection** — turn a meeting note or image into a reviewed record.
+- **Connections** — every saved connection with inline editing of name, job position, company, email, stage, and more.
+- **Connection workspace** — generate a POC pack, track stages, record outcomes, and send the follow-up email.
+- **How it works** — the approach and responsible-use notes.
 
 ## Stack
 

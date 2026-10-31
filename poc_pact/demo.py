@@ -14,7 +14,9 @@ SAMPLE_NOTES = (
 )
 
 
-def demo_connection(your_company: str, your_country: str, notes: str) -> ConnectionDraft:
+def demo_connection(
+    your_company: str, your_country: str, notes: str
+) -> ConnectionDraft:
     is_sample = "Siti Rahman" in notes or "Nusantara Fresh" in notes
     if is_sample:
         return ConnectionDraft(
@@ -22,6 +24,7 @@ def demo_connection(your_company: str, your_country: str, notes: str) -> Connect
             contact_role="Head of Fleet Operations",
             contact_company="Nusantara Fresh Logistics",
             contact_country="Indonesia",
+            contact_email="siti.rahman@nusantarafresh.example",
             your_company=your_company or "ThermaTrack",
             your_country=your_country or "Malaysia",
             meeting_context="ASEAN Innovation Mixer in Kuala Lumpur",
@@ -36,12 +39,16 @@ def demo_connection(your_company: str, your_country: str, notes: str) -> Connect
             ],
         )
 
-    summary = notes.strip()[:300] or "Potential collaboration discussed; add notes for more detail."
+    summary = (
+        notes.strip()[:300]
+        or "Potential collaboration discussed; add notes for more detail."
+    )
     return ConnectionDraft(
         contact_name="Needs review",
         contact_role="Not provided",
         contact_company="Needs review",
         contact_country="Not provided",
+        contact_email="",
         your_company=your_company,
         your_country=your_country,
         meeting_context="Captured from your notes",
@@ -97,10 +104,22 @@ def demo_poc_pack(connection: dict) -> tuple[PocPlan, str]:
             "Record actions taken after each alert.",
         ],
         milestones=[
-            {"when": "Week 0", "deliverable": "Confirm scope, owners, data access, and baseline."},
-            {"when": "Week 1", "deliverable": "Install or connect the solution and train users."},
-            {"when": "Weeks 2–4", "deliverable": "Run journeys and review incidents weekly."},
-            {"when": "Week 5", "deliverable": "Compare results with baseline and make a go/no-go decision."},
+            {
+                "when": "Week 0",
+                "deliverable": "Confirm scope, owners, data access, and baseline.",
+            },
+            {
+                "when": "Week 1",
+                "deliverable": "Install or connect the solution and train users.",
+            },
+            {
+                "when": "Weeks 2–4",
+                "deliverable": "Run journeys and review incidents weekly.",
+            },
+            {
+                "when": "Week 5",
+                "deliverable": "Compare results with baseline and make a go/no-go decision.",
+            },
         ],
         risks_to_verify=[
             "Confirm permission to process operational and location data across both countries.",
@@ -112,5 +131,5 @@ def demo_poc_pack(connection: dict) -> tuple[PocPlan, str]:
         ),
     )
 
-    message = f"""Subject: A small pilot for {partner}\n\nHi {contact},\n\nIt was good meeting you. I turned our conversation into a small, low-risk pilot for {idea.rstrip('.')}\n\nThe suggestion is to start with five vehicles over four weeks. We would measure data completeness, alert delivery time, and how quickly the operations team can respond. {yours} would handle setup, training, and weekly reporting; your team would provide the vehicles, thresholds, and an operational owner.\n\nWould you be open to a 30-minute call next week to confirm the scope and decide whether it is worth testing?\n\nBest,\n[Your name]"""
+    message = f"""Subject: A small pilot for {partner}\n\nHi {contact},\n\nIt was good meeting you. I turned our conversation into a small, low-risk pilot for {idea.rstrip(".")}\n\nThe suggestion is to start with five vehicles over four weeks. We would measure data completeness, alert delivery time, and how quickly the operations team can respond. {yours} would handle setup, training, and weekly reporting; your team would provide the vehicles, thresholds, and an operational owner.\n\nWould you be open to a 30-minute call next week to confirm the scope and decide whether it is worth testing?\n\nBest,\n[Your name]"""
     return plan, message

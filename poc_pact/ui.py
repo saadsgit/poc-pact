@@ -187,6 +187,12 @@ CUSTOM_CSS = """
     .next-action b {color:var(--mint);}
     .legal-note {color:#a8aa96;font-size:.78rem;padding:.8rem 1rem;border-left:3px solid var(--amber);background:rgba(248,197,106,.055);border-radius:0 10px 10px 0;}
 
+    .email-actions {display:flex;gap:.6rem;flex-wrap:wrap;margin:.3rem 0 .2rem;}
+    .email-btn {display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1.05rem;border-radius:11px;font-weight:720;font-size:.88rem;text-decoration:none;border:1px solid rgba(167,243,208,.2);color:#cfeadf;background:rgba(6,21,16,.6);transition:all .18s ease;}
+    .email-btn:hover {border-color:var(--mint);transform:translateY(-1px);}
+    .email-btn.primary {color:#032015;background:linear-gradient(135deg,#71f2bd,#21c98a);border:0;box-shadow:0 10px 26px rgba(20,184,122,.2);}
+    .email-hint {color:#c9a65a;font-size:.76rem;margin-top:.5rem;}
+
     .how-grid {display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem;margin:1.2rem 0 2rem;}
     .how-card {padding:1.2rem;border:1px solid var(--line);border-radius:17px;background:rgba(9,29,22,.62);}
     .how-number {font-size:.7rem;font-weight:900;color:var(--mint);letter-spacing:.12em;}
@@ -253,7 +259,12 @@ def render_empty_state() -> None:
 
 
 def render_workflow_strip() -> None:
-    steps = (("01", "Capture"), ("02", "Clarify"), ("03", "Scope a POC"), ("04", "Track outcome"))
+    steps = (
+        ("01", "Capture"),
+        ("02", "Clarify"),
+        ("03", "Scope a POC"),
+        ("04", "Track outcome"),
+    )
     cards = "".join(
         f'<div class="workflow-item"><div class="workflow-index">{number}</div><div class="workflow-name">{name}</div></div>'
         for number, name in steps
@@ -273,7 +284,9 @@ def render_status_rail(current_status: str, statuses: Sequence[str]) -> None:
         rendered.append(
             f'<div class="{" ".join(classes)}"><span class="rail-dot"></span>{_escape(status)}</div>'
         )
-    st.markdown(f'<div class="status-rail">{"".join(rendered)}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="status-rail">{"".join(rendered)}</div>', unsafe_allow_html=True
+    )
 
 
 def render_connection_summary(connection: dict[str, Any]) -> None:
@@ -288,8 +301,8 @@ def render_connection_summary(connection: dict[str, Any]) -> None:
           <div class="contact-avatar">{_escape(initials)}</div>
           <div>
             <div class="contact-name">{_escape(name)}</div>
-            <div class="contact-meta">{_escape(connection.get('contact_role') or 'Role unknown')} · {_escape(connection.get('contact_company') or 'Company unknown')}</div>
-            <div class="contact-idea">{_escape(connection.get('collaboration_idea') or 'No collaboration idea recorded.')}</div>
+            <div class="contact-meta">{_escape(connection.get("contact_role") or "Role unknown")} · {_escape(connection.get("contact_company") or "Company unknown")}</div>
+            <div class="contact-idea">{_escape(connection.get("collaboration_idea") or "No collaboration idea recorded.")}</div>
           </div>
           <div style="text-align:right"><span class="status-pill {status_class}">{_escape(status)}</span><div class="country-route" style="margin-top:.55rem">{_escape(route)}</div></div>
         </div>
@@ -302,7 +315,7 @@ def render_plan(plan: dict[str, Any]) -> None:
     st.markdown(
         f"""
         <div class="poc-hero"><div class="poc-label">Generated POC blueprint</div>
-        <h2>{_escape(plan.get('title') or 'POC proposal')}</h2></div>
+        <h2>{_escape(plan.get("title") or "POC proposal")}</h2></div>
         """,
         unsafe_allow_html=True,
     )
@@ -312,7 +325,10 @@ def render_plan(plan: dict[str, Any]) -> None:
     with right:
         _insight_card("Testable hypothesis", plan.get("hypothesis") or "Not specified")
 
-    render_section_header("Pilot boundaries", f"Suggested duration · {plan.get('duration') or 'To be agreed'}")
+    render_section_header(
+        "Pilot boundaries",
+        f"Suggested duration · {plan.get('duration') or 'To be agreed'}",
+    )
     scope_col, out_col = st.columns(2)
     with scope_col, st.container(border=True):
         st.markdown("**✓ In scope**")
@@ -340,7 +356,9 @@ def render_plan(plan: dict[str, Any]) -> None:
             f'<div class="milestone"><div class="milestone-when">{_escape(item.get("when", ""))}</div><div class="milestone-text">{_escape(item.get("deliverable", ""))}</div></div>'
             for item in plan["milestones"]
         )
-        st.markdown(f'<div class="insight-card">{milestones}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="insight-card">{milestones}</div>', unsafe_allow_html=True
+        )
 
     render_section_header("Check before launch", "Questions, not legal conclusions")
     with st.container(border=True):
@@ -417,6 +435,76 @@ def _bullet_list(items: list[Any]) -> None:
 
 def _markdown_list(items: list[Any]) -> str:
     return "\n".join(f"- {item}" for item in items) if items else "- Not specified"
+
+
+def split_subject_body(message: str) -> tuple[str, str]:
+    """Split a follow-up draft into a subject line and body.
+
+    Recognizes a leading "Subject: ..." line; otherwise the whole message is the body.
+    """
+    text = (message or "").strip()
+    if not text:
+        return "", ""
+    first_line, _, rest = text.partition("\n")
+    if first_line.lower().startswith("subject:"):
+        return first_line.split(":", 1)[1].strip(), rest.lstrip("\n")
+    return "", text
+
+
+def mailto_link(to_address: str, subject: str, body: str) -> str:
+    """Build a mailto: URL that opens the user's default email client."""
+    from urllib.parse import quote
+
+    recipient = quote(to_address.strip(), safe="@.+-_")
+    query_parts = []
+    if subject:
+        query_parts.append(f"subject={quote(subject)}")
+    if body:
+        query_parts.append(f"body={quote(body)}")
+    query = f"?{'&'.join(query_parts)}" if query_parts else ""
+    return f"mailto:{recipient}{query}"
+
+
+def gmail_link(to_address: str, subject: str, body: str) -> str:
+    """Build a Gmail compose URL as a browser-based alternative to mailto:."""
+    from urllib.parse import quote
+
+    base = "https://mail.google.com/mail/?view=cm&fs=1"
+    parts = [base]
+    if to_address.strip():
+        parts.append(f"to={quote(to_address.strip())}")
+    if subject:
+        parts.append(f"su={quote(subject)}")
+    if body:
+        parts.append(f"body={quote(body)}")
+    return "&".join(parts)
+
+
+def render_email_actions(to_address: str, subject: str, body: str) -> None:
+    """Render buttons that open an email client prefilled with the follow-up."""
+    default_client = mailto_link(to_address, subject, body)
+    gmail = gmail_link(to_address, subject, body)
+    missing_recipient = not to_address.strip()
+    hint = (
+        '<div class="email-hint">No email on file — add the contact address below, '
+        "or your client will open with an empty recipient.</div>"
+        if missing_recipient
+        else ""
+    )
+    st.markdown(
+        f"""
+        <div class="email-actions">
+          <a class="email-btn primary" href="{_escape_attr(default_client)}" target="_blank" rel="noopener">✉ Open in email app</a>
+          <a class="email-btn" href="{_escape_attr(gmail)}" target="_blank" rel="noopener">Open in Gmail</a>
+        </div>
+        {hint}
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _escape_attr(value: str) -> str:
+    return str(value).replace("&", "&amp;").replace('"', "&quot;")
 
 
 def _escape(value: Any) -> str:

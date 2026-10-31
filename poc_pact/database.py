@@ -34,6 +34,7 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 contact_role TEXT NOT NULL DEFAULT '',
                 contact_company TEXT NOT NULL DEFAULT '',
                 contact_country TEXT NOT NULL DEFAULT '',
+                contact_email TEXT NOT NULL DEFAULT '',
                 your_company TEXT NOT NULL DEFAULT '',
                 your_country TEXT NOT NULL DEFAULT '',
                 meeting_context TEXT NOT NULL DEFAULT '',
@@ -54,6 +55,58 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS profile (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                your_company TEXT NOT NULL DEFAULT '',
+                your_country TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        _add_missing_columns(connection)
+
+
+def _add_missing_columns(connection: sqlite3.Connection) -> None:
+    """Add columns introduced after the first release to existing databases."""
+    existing = {
+        row["name"] for row in connection.execute("PRAGMA table_info(connections)")
+    }
+    if "contact_email" not in existing:
+        connection.execute(
+            "ALTER TABLE connections ADD COLUMN contact_email TEXT NOT NULL DEFAULT ''"
+        )
+
+
+def get_profile(path: Path = DATABASE_PATH) -> dict[str, str]:
+    with _connect(path) as connection:
+        row = connection.execute(
+            "SELECT your_company, your_country FROM profile WHERE id = 1"
+        ).fetchone()
+    if row:
+        return {
+            "your_company": row["your_company"],
+            "your_country": row["your_country"],
+        }
+    return {"your_company": "", "your_country": ""}
+
+
+def save_profile(
+    your_company: str, your_country: str, path: Path = DATABASE_PATH
+) -> None:
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO profile (id, your_company, your_country, updated_at)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                your_company = excluded.your_company,
+                your_country = excluded.your_country,
+                updated_at = excluded.updated_at
+            """,
+            (your_company, your_country, _now()),
+        )
 
 
 def create_connection(
@@ -71,16 +124,17 @@ def create_connection(
             """
             INSERT INTO connections (
                 contact_name, contact_role, contact_company, contact_country,
-                your_company, your_country, meeting_context, collaboration_idea,
-                next_step, confidence_notes_json, raw_notes, source_filename,
-                ai_mode, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                contact_email, your_company, your_country, meeting_context,
+                collaboration_idea, next_step, confidence_notes_json, raw_notes,
+                source_filename, ai_mode, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 values["contact_name"],
                 values["contact_role"],
                 values["contact_company"],
                 values["contact_country"],
+                values["contact_email"],
                 values["your_company"],
                 values["your_country"],
                 values["meeting_context"],
@@ -97,6 +151,38 @@ def create_connection(
         return int(cursor.lastrowid)
 
 
+def update_connection_fields(
+    connection_id: int,
+    fields_to_update: dict[str, Any],
+    path: Path = DATABASE_PATH,
+) -> None:
+    """Update editable connection fields. Only known columns are written."""
+    editable = {
+        "contact_name",
+        "contact_role",
+        "contact_company",
+        "contact_country",
+        "contact_email",
+        "your_company",
+        "your_country",
+        "meeting_context",
+        "collaboration_idea",
+        "next_step",
+        "status",
+        "follow_up_message",
+    }
+    updates = {key: value for key, value in fields_to_update.items() if key in editable}
+    if not updates:
+        return
+    assignments = ", ".join(f"{column} = ?" for column in updates)
+    values = [*updates.values(), _now(), connection_id]
+    with _connect(path) as connection:
+        connection.execute(
+            f"UPDATE connections SET {assignments}, updated_at = ? WHERE id = ?",
+            values,
+        )
+
+
 def list_connections(path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
     with _connect(path) as connection:
         rows = connection.execute(
@@ -105,7 +191,9 @@ def list_connections(path: Path = DATABASE_PATH) -> list[dict[str, Any]]:
     return [_decode_row(row) for row in rows]
 
 
-def get_connection(connection_id: int, path: Path = DATABASE_PATH) -> dict[str, Any] | None:
+def get_connection(
+    connection_id: int, path: Path = DATABASE_PATH
+) -> dict[str, Any] | None:
     with _connect(path) as connection:
         row = connection.execute(
             "SELECT * FROM connections WHERE id = ?", (connection_id,)
@@ -138,7 +226,13 @@ def save_poc_pack(
                 updated_at = ?
             WHERE id = ?
             """,
-            (json.dumps(plan.to_dict()), follow_up_message, ai_mode, _now(), connection_id),
+            (
+                json.dumps(plan.to_dict()),
+                follow_up_message,
+                ai_mode,
+                _now(),
+                connection_id,
+            ),
         )
 
 
@@ -158,7 +252,14 @@ def save_outcome(
                 updated_at = ?
             WHERE id = ?
             """,
-            (outcome_type, estimated_value, currency, outcome_type, _now(), connection_id),
+            (
+                outcome_type,
+                estimated_value,
+                currency,
+                outcome_type,
+                _now(),
+                connection_id,
+            ),
         )
 
 

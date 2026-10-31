@@ -10,6 +10,17 @@ DATABASE_PATH = DATA_DIR / "poc_pact.db"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_NOTES_CHARS = 5_000
 
+CURRENCIES = ("USD", "SGD", "MYR", "IDR", "THB", "VND", "PHP", "BND")
+OUTCOME_TYPES = (
+    "",
+    "POC launched",
+    "Commercial partnership",
+    "Investment",
+    "Market expansion",
+    "Cross-border sale",
+    "Other",
+)
+
 STATUSES = (
     "Captured",
     "Follow-up sent",

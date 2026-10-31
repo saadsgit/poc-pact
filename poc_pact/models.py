@@ -10,6 +10,7 @@ class ConnectionDraft:
     contact_role: str = ""
     contact_company: str = ""
     contact_country: str = ""
+    contact_email: str = ""
     your_company: str = ""
     your_country: str = ""
     meeting_context: str = ""
