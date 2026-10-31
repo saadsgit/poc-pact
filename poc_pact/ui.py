@@ -5,6 +5,8 @@ from typing import Any
 
 import streamlit as st
 
+from poc_pact.assets import LOGO_SVG
+
 CUSTOM_CSS = """
 <style>
     :root {
@@ -44,14 +46,14 @@ CUSTOM_CSS = """
     [data-testid="stSidebarContent"] {padding: 1.2rem .75rem;}
     [data-testid="stSidebar"] hr {border-color: var(--line); margin: 1.1rem 0;}
 
-    .brand {display:flex; align-items:center; gap:.78rem; padding:.45rem .35rem .9rem;}
+    .brand {display:flex; align-items:center; gap:.7rem; padding:.45rem .35rem 1rem;}
     .brand-mark {
-        width:2.65rem; height:2.65rem; display:grid; place-items:center; border-radius:.9rem;
-        background: linear-gradient(145deg, var(--mint), var(--emerald)); color:#042116;
-        font-weight:950; font-size:1.15rem; box-shadow:0 10px 30px rgba(20,184,122,.25);
+        width:2.75rem; height:2.75rem; display:grid; place-items:center; border-radius:.9rem; padding:.28rem;
+        background: radial-gradient(circle at 35% 25%, rgba(94,233,173,.16), rgba(8,27,20,.5));
+        border:1px solid rgba(94,233,173,.22); box-shadow:0 10px 30px rgba(20,184,122,.18);
     }
-    .brand-name {font-weight:850; font-size:1.16rem; letter-spacing:-.02em; color:var(--ink);}
-    .brand-tagline {font-size:.72rem; color:var(--muted); margin-top:.08rem;}
+    .brand-mark svg {display:block; width:100%; height:100%; filter:drop-shadow(0 2px 6px rgba(21,146,74,.4));}
+    .brand-name {font-weight:850; font-size:1.22rem; letter-spacing:-.02em; color:var(--ink);}
     .sidebar-label {font-size:.68rem; letter-spacing:.13em; text-transform:uppercase; color:#719587; font-weight:800; margin:.25rem .42rem .5rem;}
     .privacy-note {font-size:.72rem; line-height:1.5; color:#78988b; padding:.4rem .45rem;}
 
@@ -215,10 +217,10 @@ def inject_styles() -> None:
 
 def render_brand() -> None:
     st.markdown(
-        """
+        f"""
         <div class="brand">
-          <div class="brand-mark">P</div>
-          <div><div class="brand-name">POC Pact</div><div class="brand-tagline">Connections → outcomes</div></div>
+          <div class="brand-mark">{LOGO_SVG}</div>
+          <div class="brand-name">POC Pact</div>
         </div>
         """,
         unsafe_allow_html=True,
