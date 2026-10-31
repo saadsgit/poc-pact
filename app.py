@@ -395,21 +395,42 @@ def connections_page() -> None:
         "Connections",
         "Every company you are pursuing and the people within it. Search, edit any detail, or remove entries.",
     )
-    search = st.text_input(
-        "Search by company or contact name", placeholder="Start typing…"
-    )
-    companies = list_companies(include_closed=False, search=search)
-    if not companies:
-        st.info(
-            "No matching active connections."
-            if search
-            else "No connections saved yet. Capture one first."
-        )
+    all_active = list_companies(include_closed=False)
+    if not all_active:
+        st.info("No connections saved yet. Capture one first.")
         return
+
+    control_l, control_r = st.columns([2, 1])
+    with control_l:
+        search = st.text_input(
+            "Search by company or contact name",
+            key="connections_search",
+            placeholder="Start typing a company or person…",
+        ).strip()
+    with control_r:
+        company_names = {0: "All companies"}
+        company_names.update(
+            {c["id"]: c["company_name"] or "Unnamed" for c in all_active}
+        )
+        picked = st.selectbox(
+            "Jump to a company",
+            list(company_names),
+            format_func=lambda v: company_names[v],
+            key="connections_pick",
+        )
+
+    companies = list_companies(include_closed=False, search=search)
+    if picked:
+        companies = [c for c in companies if c["id"] == picked]
+
+    if not companies:
+        st.warning(f"No matches for “{search}”." if search else "No companies to show.")
+        return
+    st.caption(f"Showing {len(companies)} of {len(all_active)} companies.")
 
     for company in companies:
         header = f"{company['company_name'] or 'Unnamed company'} · {len(company['contacts'])} contact(s) · {company['status']}"
-        with st.expander(header):
+        with st.expander(header, expanded=bool(search) or picked == company["id"]):
             with st.form(f"company_{company['id']}"):
                 cc1, cc2 = st.columns(2)
                 with cc1:
@@ -606,21 +627,58 @@ def _render_submit_proposal(mode: str, api_key: str | None) -> None:
         0: "➕ New company",
         **{c["id"]: c["company_name"] or "Unnamed" for c in companies},
     }
+
+    # Company choice lives outside the form so the contact list can react to it.
+    target = st.selectbox(
+        "Company",
+        list(options),
+        format_func=lambda v: options[v],
+        key="proposal_company",
+    )
+
+    existing_contact_id = 0
+    if target != 0:
+        chosen_company = next((c for c in companies if c["id"] == target), None)
+        contact_choices = {0: "➕ New contact person"}
+        if chosen_company:
+            contact_choices.update(
+                {
+                    ct[
+                        "id"
+                    ]: f"{ct['contact_name'] or 'Unnamed'} · {ct['contact_role'] or 'role unknown'}"
+                    for ct in chosen_company["contacts"]
+                }
+            )
+        existing_contact_id = st.selectbox(
+            "Contact person",
+            list(contact_choices),
+            format_func=lambda v: contact_choices[v],
+            key="proposal_contact",
+            help="Pick an existing person at this company, or add a new one.",
+        )
+
     with st.form("submit_proposal"):
-        target = st.selectbox(
-            "Company", list(options), format_func=lambda v: options[v]
-        )
+        is_new_company = target == 0
+        is_new_contact = existing_contact_id == 0
         new_company = st.text_input(
-            "New company name (if adding)", placeholder="Only needed for a new company"
+            "New company name",
+            placeholder="Only needed for a new company",
+            disabled=not is_new_company,
         )
-        new_country = st.text_input("Company country", placeholder="e.g. Vietnam")
-        person = st.text_input("Contact person name")
-        role = st.text_input("Job position")
-        email = st.text_input("Email address", placeholder="Leave blank if unknown")
+        new_country = st.text_input(
+            "Company country", placeholder="e.g. Vietnam", disabled=not is_new_company
+        )
+        person = st.text_input("Contact person name", disabled=not is_new_contact)
+        role = st.text_input("Job position", disabled=not is_new_contact)
+        email = st.text_input(
+            "Email address",
+            placeholder="Leave blank if unknown",
+            disabled=not is_new_contact,
+        )
         context = st.text_area(
             "New context / discussion",
             height=160,
-            placeholder="What is the opportunity with this person?",
+            placeholder="What is the opportunity? For an existing contact, this is new context for a fresh POC.",
         )
         submitted = st.form_submit_button(
             "Analyze and add", type="primary", use_container_width=True
@@ -630,7 +688,7 @@ def _render_submit_proposal(mode: str, api_key: str | None) -> None:
         if not context.strip():
             st.error("Add some context first.")
             return
-        company_name = new_company.strip() if target == 0 else options[target]
+        company_name = new_company.strip() if is_new_company else options[target]
         if not company_name:
             st.error("Provide a company name.")
             return
@@ -638,13 +696,9 @@ def _render_submit_proposal(mode: str, api_key: str | None) -> None:
             try:
                 draft = _run_analysis(mode, api_key, context, None, profile)
                 draft.contact_company = company_name
-                draft.contact_name = person.strip() or draft.contact_name
-                draft.contact_role = role.strip() or draft.contact_role
-                draft.contact_email = email.strip() or draft.contact_email
-                draft.contact_country = new_country.strip() or draft.contact_country
                 source_mode = MODEL_ID if mode == "Gemma 4" else "Demo simulation"
 
-                if target == 0:
+                if is_new_company:
                     existing = find_company_by_name(company_name)
                     company_id = (
                         existing["id"]
@@ -658,14 +712,30 @@ def _render_submit_proposal(mode: str, api_key: str | None) -> None:
                     )
                 else:
                     company_id = target
-                contact_id = add_contact_from_draft(
-                    company_id,
-                    draft,
-                    discussion=context.strip(),
-                    raw_notes=context.strip(),
-                    source_filename="",
-                    ai_mode=source_mode,
-                )
+
+                if not is_new_contact:
+                    # Regenerate a POC for an existing contact using the new context.
+                    existing_contact = get_contact(existing_contact_id)
+                    update_contact_fields(
+                        existing_contact_id, {"discussion": context.strip()}
+                    )
+                    contact_id = existing_contact_id
+                    draft.contact_name = existing_contact["contact_name"]
+                    draft.contact_role = existing_contact["contact_role"]
+                    draft.contact_email = existing_contact["contact_email"]
+                else:
+                    draft.contact_name = person.strip() or draft.contact_name
+                    draft.contact_role = role.strip() or draft.contact_role
+                    draft.contact_email = email.strip() or draft.contact_email
+                    draft.contact_country = new_country.strip() or draft.contact_country
+                    contact_id = add_contact_from_draft(
+                        company_id,
+                        draft,
+                        discussion=context.strip(),
+                        raw_notes=context.strip(),
+                        source_filename="",
+                        ai_mode=source_mode,
+                    )
                 company = get_company(company_id)
                 contact = get_contact(contact_id)
                 evidence = {
