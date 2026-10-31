@@ -27,8 +27,15 @@ from poc_pact.models import ConnectionDraft
 from poc_pact.ui import (
     inject_styles,
     plan_as_markdown,
+    render_brand,
     render_connection_summary,
+    render_empty_state,
+    render_how_cards,
+    render_page_header,
     render_plan,
+    render_section_header,
+    render_status_rail,
+    render_workflow_strip,
 )
 
 st.set_page_config(page_title="POC Pact", page_icon="🤝", layout="wide")
@@ -40,15 +47,22 @@ CONFIGURED_API_KEY = get_api_key()
 
 def sidebar() -> tuple[str, str, str | None]:
     with st.sidebar:
-        st.markdown("## 🤝 POC Pact")
-        st.caption("From warm introduction to measurable outcome.")
-        st.divider()
+        render_brand()
+        st.markdown('<div class="sidebar-label">Workspace</div>', unsafe_allow_html=True)
+        nav_labels = {
+            "Dashboard": "◫  Dashboard",
+            "Capture connection": "＋  Capture connection",
+            "Connection workspace": "◇  Connection workspace",
+            "How it works": "◎  How it works",
+        }
         page = st.radio(
             "Navigate",
-            ("Dashboard", "Capture connection", "Connection workspace", "How it works"),
+            tuple(nav_labels),
+            format_func=lambda value: nav_labels[value],
             label_visibility="collapsed",
         )
         st.divider()
+        st.markdown('<div class="sidebar-label">AI connection</div>', unsafe_allow_html=True)
         active_api_key = CONFIGURED_API_KEY
         if not active_api_key:
             active_api_key = st.text_input(
@@ -71,7 +85,10 @@ def sidebar() -> tuple[str, str, str | None]:
             st.warning("Demo mode · no API key found")
             st.caption("Paste a key above for this session, or configure Streamlit secrets.")
         st.divider()
-        st.caption("Images are analyzed but not stored. Never upload confidential material without permission.")
+        st.markdown(
+            '<div class="privacy-note">🔒 Images are analyzed but not stored.<br>Only process material you have permission to use.</div>',
+            unsafe_allow_html=True,
+        )
     return page, mode, active_api_key
 
 
@@ -79,13 +96,24 @@ def dashboard_page() -> None:
     st.markdown(
         """
         <div class="hero">
-          <div class="eyebrow">ASEAN connection conversion</div>
-          <h1>Good meetings should lead somewhere.</h1>
-          <p>Capture an introduction, turn it into a small proof of concept, and show what the ecosystem connection actually produced.</p>
+          <div class="hero-inner">
+            <div>
+              <div class="eyebrow">ASEAN connection conversion</div>
+              <h1>Turn warm intros into <span>real outcomes.</span></h1>
+              <p>Capture the context while it is fresh. Shape a low-risk proof of concept. Track the connection all the way to measurable value.</p>
+              <div class="hero-kicker"><span class="micro-chip">✦ Gemma 4 powered</span><span class="micro-chip">↗ Cross-border ready</span><span class="micro-chip">✓ Human reviewed</span></div>
+            </div>
+            <div class="hero-visual">
+              <div class="orbit one"><span class="orbit-dot"></span></div>
+              <div class="orbit two"><span class="orbit-dot"></span></div>
+              <div class="hero-core">↗</div>
+            </div>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    render_workflow_strip()
     items = list_connections()
     total = len(items)
     active = sum(item["status"] in {"POC agreed", "POC running"} for item in items)
@@ -99,19 +127,13 @@ def dashboard_page() -> None:
     cols[3].metric("Outcomes", outcomes)
 
     if not items:
-        st.info("No connections yet. Open **Capture connection** to turn your first meeting into an actionable record.")
-        st.markdown("### Your first 3 steps")
-        for number, text in (
-            (1, "Add a meeting note, business card, or chat screenshot."),
-            (2, "Review what Gemma extracts before saving anything."),
-            (3, "Generate a focused POC proposal and follow-up message."),
-        ):
-            st.markdown(f'<p><span class="step-number">{number}</span>{text}</p>', unsafe_allow_html=True)
+        render_empty_state()
+        st.caption("Start from Capture connection in the left navigation. Demo mode works without an API key.")
         return
 
     left, right = st.columns([1.35, 1])
     with left:
-        st.subheader("Connection pipeline")
+        render_section_header("Connection pipeline", "Where every relationship stands")
         counts = Counter(item["status"] for item in items)
         chart_data = [
             {"Stage": status, "Connections": counts.get(status, 0)}
@@ -124,7 +146,7 @@ def dashboard_page() -> None:
             horizontal=True,
         )
     with right:
-        st.subheader("Recorded value")
+        render_section_header("Recorded value", "Grouped by currency")
         by_currency: dict[str, float] = defaultdict(float)
         for item in items:
             if item["estimated_value"]:
@@ -135,15 +157,19 @@ def dashboard_page() -> None:
         else:
             st.caption("No commercial value recorded yet. Value remains optional until a real outcome exists.")
 
-    st.subheader("Recently updated")
+    render_section_header("Recently updated", "Your latest connection activity")
     for item in items[:4]:
         render_connection_summary(item)
         st.write("")
 
 
 def capture_page(mode: str, api_key: str | None) -> None:
-    st.title("Capture a promising connection")
-    st.write("Add whatever you left the meeting with. Gemma will organize it; you approve the record.")
+    render_page_header(
+        "Capture the spark",
+        "What came out of the conversation?",
+        "Add the scraps you left with. Gemma organizes the signal, and you approve every detail before it becomes a record.",
+    )
+    st.caption(f"Current analysis mode · {mode}")
 
     if st.button("Use the sample ASEAN meeting", type="secondary"):
         st.session_state["capture_notes"] = SAMPLE_NOTES
@@ -206,7 +232,7 @@ def capture_page(mode: str, api_key: str | None) -> None:
 
     if "draft" in st.session_state:
         st.divider()
-        st.subheader("Review before saving")
+        render_section_header("Review the signal", "Nothing is saved until you approve it")
         st.caption("AI can misread names and companies. Correct every field that matters.")
         with st.form("review_connection"):
             a, b = st.columns(2)
@@ -256,7 +282,11 @@ def capture_page(mode: str, api_key: str | None) -> None:
 
 
 def workspace_page(mode: str, api_key: str | None) -> None:
-    st.title("Connection workspace")
+    render_page_header(
+        "Move it forward",
+        "Connection workspace",
+        "Turn context into a practical pilot, then keep the relationship moving toward an outcome.",
+    )
     items = list_connections()
     if not items:
         st.info("Capture and save a connection first.")
@@ -273,8 +303,8 @@ def workspace_page(mode: str, api_key: str | None) -> None:
         return
 
     render_connection_summary(connection)
-    st.write("")
-    details, progress, outcome = st.tabs(("Details", "Progress", "Outcome"))
+    render_status_rail(connection["status"], STATUSES)
+    details, progress, outcome = st.tabs(("Context", "Move forward", "Record outcome"))
     with details:
         one, two = st.columns(2)
         with one:
@@ -314,7 +344,7 @@ def workspace_page(mode: str, api_key: str | None) -> None:
             st.rerun()
 
     st.divider()
-    st.subheader("POC pack")
+    render_section_header("POC pack", "A small test designed to earn the next yes")
     if not connection["poc_plan"]:
         st.write("Generate a narrow pilot plan and a message that makes the next step easy to accept.")
         if st.button("Generate POC pack", type="primary", use_container_width=True):
@@ -345,26 +375,40 @@ def workspace_page(mode: str, api_key: str | None) -> None:
 
 
 def how_it_works_page() -> None:
-    st.title("How POC Pact works")
-    st.write("POC Pact focuses on the gap between making a connection and producing a measurable result.")
-    for number, title, body in (
-        (1, "Capture", "Upload a business card or screenshot and add what you remember from the meeting."),
-        (2, "Clarify", "Gemma extracts the people, organizations, countries, collaboration idea, and next step."),
-        (3, "Scope", "The app turns the idea into a small POC with responsibilities and proposed success metrics."),
-        (4, "Convert", "Track the connection through follow-up, meeting, pilot, and a recorded business outcome."),
-    ):
-        st.markdown(f"### {number}. {title}")
-        st.write(body)
-    st.info("Hackathon category: Best Use of Gemma 4 · Problem statement 1")
-    st.markdown("### Responsible use")
-    st.markdown(
-        "- Review extracted information before saving it.\n"
-        "- Obtain permission before uploading another person's information.\n"
-        "- Treat generated plans as drafts, not contracts or legal advice.\n"
-        "- Verify all cross-border, privacy, regulatory, and financial details."
+    render_page_header(
+        "The conversion layer",
+        "From handshake to outcome",
+        "POC Pact closes the gap between meeting the right person and building something concrete together.",
     )
-    st.markdown("### Technology")
-    st.write(f"Streamlit, SQLite, the Google Gen AI Python SDK, and `{MODEL_ID}` through the Gemini API.")
+    render_how_cards()
+    with st.container(border=True):
+        st.markdown("#### Built for the challenge")
+        st.write(
+            "**Best Use of Gemma 4 · Problem statement 1**  \n"
+            "Convert ASEAN ecosystem connections into measurable investments, partnerships, market expansion, and cross-border POCs."
+        )
+
+    render_section_header("Responsible by design", "Useful AI needs visible boundaries")
+    responsibility_cols = st.columns(2)
+    with responsibility_cols[0], st.container(border=True):
+        st.markdown("**Human control**")
+        st.markdown(
+            "- Review extraction before saving\n"
+            "- Edit every generated POC\n"
+            "- Record outcomes manually"
+        )
+    with responsibility_cols[1], st.container(border=True):
+        st.markdown("**Safe boundaries**")
+        st.markdown(
+            "- Get permission before uploading information\n"
+            "- Treat plans as drafts, not legal advice\n"
+            "- Verify all cross-border requirements"
+        )
+
+    render_section_header("Under the hood", "Small, understandable, and easy to extend")
+    st.write(
+        f"Streamlit for the experience · SQLite for local records · Google Gen AI SDK · `{MODEL_ID}` through the Gemini API"
+    )
 
 
 page, analysis_mode, active_api_key = sidebar()
