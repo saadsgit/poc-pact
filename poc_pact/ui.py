@@ -393,7 +393,7 @@ def plan_as_markdown(connection: dict[str, Any]) -> str:
     plan = connection.get("poc_plan") or {}
     sections = [
         f"# {plan.get('title', 'POC proposal')}",
-        f"**Parties:** {connection.get('your_company', '')} and {connection.get('contact_company', '')}",
+        f"**Parties:** {connection.get('your_company', '')} and {connection.get('contact_company') or connection.get('company_name', '')}",
         f"**Suggested duration:** {plan.get('duration', '')}",
         "## Problem",
         plan.get("problem", ""),
@@ -503,6 +503,31 @@ def render_email_actions(to_address: str, subject: str, body: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def format_timestamp(iso_value: str) -> str:
+    """Render an ISO timestamp as a short, readable date and time (UTC)."""
+    if not iso_value:
+        return ""
+    try:
+        from datetime import datetime
+
+        parsed = datetime.fromisoformat(iso_value)
+        return parsed.strftime("%d %b %Y · %H:%M UTC")
+    except ValueError:
+        return iso_value
+
+
+def render_stage_history(history: list[dict[str, Any]]) -> None:
+    if not history:
+        st.caption("No stage changes recorded yet.")
+        return
+    rows = "".join(
+        f'<div class="milestone"><div class="milestone-when">{_escape(format_timestamp(item.get("changed_at", "")))}</div>'
+        f'<div class="milestone-text">{_escape(item.get("stage", ""))}</div></div>'
+        for item in history
+    )
+    st.markdown(f'<div class="insight-card">{rows}</div>', unsafe_allow_html=True)
 
 
 def _escape_attr(value: str) -> str:

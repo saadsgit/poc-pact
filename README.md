@@ -21,12 +21,22 @@ The central idea is simple: ecosystems should measure what connections produce, 
 6. **Send:** Open the drafted follow-up directly in your email app or Gmail, prefilled with the recipient, subject, and body.
 7. **Convert:** Track the connection through follow-up, pilot, partnership, investment, or expansion.
 
+## Data model
+
+Connections are organized as **companies that each contain one or more contacts**:
+
+- A **company** holds the relationship — its name, country, overall stage, timestamped stage history, and final outcome.
+- Each **contact** within a company has their own job position, email, discussion notes, collaboration idea, next step, POC pack, and follow-up message.
+
+When a company's stage is set to **Closed**, it leaves the active workspace and is archived under **Completed** with its full stage timeline and outcome.
+
 ## Pages
 
-- **Dashboard** — pipeline overview, recorded value, and recent activity.
-- **Capture connection** — turn a meeting note or image into a reviewed record.
-- **Connections** — every saved connection with inline editing of name, job position, company, email, stage, and more.
-- **Connection workspace** — generate a POC pack, track stages, record outcomes, and send the follow-up email.
+- **Dashboard** — pipeline overview across companies, recorded value, and counts.
+- **Capture connection** — turn a meeting note or image into a reviewed record (creates or reuses a company and adds a contact).
+- **Connections** — search by company or contact name; edit any company or contact field inline; delete a contact or a whole company.
+- **Connection workspace** — pick a company, switch between its contacts, generate a per-contact POC pack, update the stage (timestamped), record an outcome, and **Submit a proposal** to add a new company/contact with fresh context.
+- **Completed** — archived closed relationships with their stage timeline and outcome.
 - **How it works** — the approach and responsible-use notes.
 
 ## Stack
