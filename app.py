@@ -346,9 +346,14 @@ def capture_page(mode: str, api_key: str | None) -> None:
             st.session_state.get("review_contact_company", "")
         )
         if existing:
-            st.info(
-                f"'{existing['company_name']}' already exists — this contact will be added to it."
-            )
+            if existing["status"] == "Closed":
+                st.warning(
+                    f"'{existing['company_name']}' is in Completed. Saving will reopen it and add this contact."
+                )
+            else:
+                st.info(
+                    f"'{existing['company_name']}' already exists — this contact will be added to it."
+                )
 
         confidence_notes = st.session_state["draft"].get("confidence_notes", [])
         if confidence_notes:
@@ -373,16 +378,18 @@ def capture_page(mode: str, api_key: str | None) -> None:
                     next_step=next_step.strip(),
                     confidence_notes=confidence_notes,
                 )
-                company_id, _ = capture_connection(
+                company_id, contact_id = capture_connection(
                     reviewed,
                     discussion=st.session_state.get("draft_raw_notes", ""),
                     raw_notes=st.session_state.get("draft_raw_notes", ""),
                     source_filename=st.session_state.get("draft_source_filename", ""),
                     ai_mode=st.session_state.get("draft_source_mode", ""),
                 )
+                st.session_state["pending_workspace_company"] = company_id
+                st.session_state["pending_workspace_contact"] = contact_id
                 st.session_state.pop("draft", None)
                 st.success(
-                    f"Saved to company #{company_id}. Open **Connection workspace** to generate a POC."
+                    "Connection saved and ready in **Connection workspace**."
                 )
 
 
@@ -700,16 +707,17 @@ def _render_submit_proposal(mode: str, api_key: str | None) -> None:
 
                 if is_new_company:
                     existing = find_company_by_name(company_name)
-                    company_id = (
-                        existing["id"]
-                        if existing
-                        else create_company(
+                    if existing:
+                        company_id = int(existing["id"])
+                        if existing["status"] == "Closed":
+                            update_stage(company_id, "Captured")
+                    else:
+                        company_id = create_company(
                             company_name=company_name,
                             company_country=new_country.strip(),
                             your_company=profile["your_company"],
                             your_country=profile["your_country"],
                         )
-                    )
                 else:
                     company_id = target
 
@@ -756,9 +764,12 @@ def _render_submit_proposal(mode: str, api_key: str | None) -> None:
                 else:
                     plan, message = demo_poc_pack(evidence)
                 save_contact_poc(contact_id, plan, message, ai_mode=source_mode)
-                st.success(
-                    f"Added to '{company_name}' with a POC pack. Select it above to view."
+                st.session_state["pending_workspace_company"] = company_id
+                st.session_state["pending_workspace_contact"] = contact_id
+                st.session_state["workspace_flash"] = (
+                    f"POC created for {contact['contact_name'] or 'the contact'} at {company_name}."
                 )
+                st.rerun()
             except AiServiceError as exc:
                 st.error(str(exc))
 
@@ -775,10 +786,21 @@ def workspace_page(mode: str, api_key: str | None) -> None:
             c["id"]: f"{c['company_name'] or 'Unnamed'} · {c['status']}"
             for c in companies
         }
+        pending_company = st.session_state.pop("pending_workspace_company", None)
+        if pending_company in labels:
+            st.session_state["workspace_company"] = pending_company
+        elif st.session_state.get("workspace_company") not in labels:
+            st.session_state["workspace_company"] = next(iter(labels))
         selected_id = st.selectbox(
-            "Choose a company", list(labels), format_func=lambda v: labels[v]
+            "Choose a company",
+            list(labels),
+            format_func=lambda v: labels[v],
+            key="workspace_company",
         )
         company = get_company(selected_id)
+        flash = st.session_state.pop("workspace_flash", None)
+        if flash:
+            st.success(flash)
         if company:
             render_status_rail(company["status"], STATUSES)
             manage, forward, outcome = st.tabs(
@@ -795,20 +817,37 @@ def workspace_page(mode: str, api_key: str | None) -> None:
                     for c in company["contacts"]
                 }
                 if contact_labels:
+                    contact_key = f"workspace_contact_{selected_id}"
+                    pending_contact = st.session_state.pop(
+                        "pending_workspace_contact", None
+                    )
+                    if pending_contact in contact_labels:
+                        st.session_state[contact_key] = pending_contact
+                    elif st.session_state.get(contact_key) not in contact_labels:
+                        st.session_state[contact_key] = next(iter(contact_labels))
                     chosen = st.radio(
                         "Contact person",
                         list(contact_labels),
                         format_func=lambda v: contact_labels[v],
                         horizontal=True,
+                        key=contact_key,
                     )
                     contact = get_contact(chosen)
-                    cc1, cc2 = st.columns(2)
-                    with cc1:
+                    st.markdown(f"### {contact['contact_name'] or 'Unnamed contact'}")
+                    info_cols = st.columns(3)
+                    with info_cols[0]:
+                        st.markdown("**Job position**")
+                        st.write(contact["contact_role"] or "Not recorded")
+                    with info_cols[1]:
                         st.markdown("**Email**")
                         st.write(contact["contact_email"] or "Not recorded")
-                    with cc2:
-                        st.markdown("**Next step**")
-                        st.write(contact["next_step"] or "Not recorded")
+                    with info_cols[2]:
+                        st.markdown("**Company**")
+                        st.write(company["company_name"] or "Not recorded")
+                    st.markdown("**Problem / POC focus**")
+                    st.write(contact["collaboration_idea"] or "Not recorded")
+                    st.markdown("**Next step**")
+                    st.write(contact["next_step"] or "Not recorded")
                     if contact["discussion"]:
                         with st.expander("Discussion notes"):
                             st.write(contact["discussion"])

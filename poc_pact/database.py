@@ -29,7 +29,47 @@ def _connect(path: Path = DATABASE_PATH) -> sqlite3.Connection:
     return connection
 
 
+def _backup_if_legacy_pending(path: Path) -> Path | None:
+    """Back up a database before touching unmapped legacy connection rows."""
+    if not path.exists() or path.stat().st_size == 0:
+        return None
+    source = sqlite3.connect(path)
+    try:
+        tables = {
+            row[0]
+            for row in source.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        legacy_tables = tables & {"connections", "connections_migrated"}
+        if not legacy_tables:
+            return None
+        if "legacy_connection_map" in tables:
+            source_rows = sum(
+                source.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in legacy_tables
+            )
+            mapped_rows = source.execute(
+                "SELECT COUNT(*) FROM legacy_connection_map"
+            ).fetchone()[0]
+            if mapped_rows >= source_rows:
+                return None
+        backup_dir = path.parent / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
+        backup_path = backup_dir / f"poc_pact-before-migration-{stamp}.db"
+        destination = sqlite3.connect(backup_path)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+        return backup_path
+    finally:
+        source.close()
+
+
 def initialize_database(path: Path = DATABASE_PATH) -> None:
+    _backup_if_legacy_pending(path)
     with _connect(path) as connection:
         connection.execute(
             """
@@ -91,83 +131,171 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS legacy_connection_map (
+                source_table TEXT NOT NULL,
+                legacy_id INTEGER NOT NULL,
+                company_id INTEGER NOT NULL,
+                contact_id INTEGER NOT NULL,
+                migrated_at TEXT NOT NULL,
+                PRIMARY KEY (source_table, legacy_id)
+            )
+            """
+        )
         _migrate_legacy_connections(connection)
 
 
+def _legacy_text(data: dict[str, Any], key: str, default: str = "") -> str:
+    value = data.get(key)
+    return str(value) if value is not None else default
+
+
 def _migrate_legacy_connections(connection: sqlite3.Connection) -> None:
-    """Convert the pre-restructure `connections` table into companies + contacts."""
+    """Recover each legacy row exactly once, even after a partial migration."""
     tables = {
         row["name"]
         for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         )
     }
-    if "connections" not in tables:
-        return
-    already = connection.execute("SELECT COUNT(*) AS n FROM companies").fetchone()["n"]
-    if already:
-        return
+    source_tables = [
+        table for table in ("connections", "connections_migrated") if table in tables
+    ]
+    for source_table in source_tables:
+        rows = connection.execute(
+            f"SELECT * FROM {source_table} ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            data = dict(row)
+            legacy_id = int(data["id"])
+            mapped = connection.execute(
+                """
+                SELECT 1 FROM legacy_connection_map
+                WHERE source_table = ? AND legacy_id = ?
+                """,
+                (source_table, legacy_id),
+            ).fetchone()
+            if mapped:
+                continue
 
-    for row in connection.execute("SELECT * FROM connections ORDER BY id"):
-        data = dict(row)
-        cursor = connection.execute(
-            """
-            INSERT INTO companies (
-                company_name, company_country, your_company, your_country,
-                status, outcome_type, estimated_value, currency, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                data.get("contact_company", ""),
-                data.get("contact_country", ""),
-                data.get("your_company", ""),
-                data.get("your_country", ""),
-                data.get("status", "Captured"),
-                data.get("outcome_type", ""),
-                data.get("estimated_value", 0) or 0,
-                data.get("currency", "USD") or "USD",
-                data.get("created_at", _now()),
-                data.get("updated_at", _now()),
-            ),
-        )
-        company_id = int(cursor.lastrowid)
-        connection.execute(
-            """
-            INSERT INTO contacts (
-                company_id, contact_name, contact_role, contact_email,
-                meeting_context, collaboration_idea, next_step, discussion,
-                confidence_notes_json, raw_notes, source_filename, ai_mode,
-                poc_plan_json, follow_up_message, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                company_id,
-                data.get("contact_name", ""),
-                data.get("contact_role", ""),
-                data.get("contact_email", ""),
-                data.get("meeting_context", ""),
-                data.get("collaboration_idea", ""),
-                data.get("next_step", ""),
-                data.get("raw_notes", ""),
-                data.get("confidence_notes_json", "[]"),
-                data.get("raw_notes", ""),
-                data.get("source_filename", ""),
-                data.get("ai_mode", ""),
-                data.get("poc_plan_json"),
-                data.get("follow_up_message", ""),
-                data.get("created_at", _now()),
-                data.get("updated_at", _now()),
-            ),
-        )
-        connection.execute(
-            "INSERT INTO stage_history (company_id, stage, changed_at) VALUES (?, ?, ?)",
-            (
-                company_id,
-                data.get("status", "Captured"),
-                data.get("created_at", _now()),
-            ),
-        )
-    connection.execute("ALTER TABLE connections RENAME TO connections_migrated")
+            company_name = (
+                _legacy_text(data, "contact_company").strip()
+                or _legacy_text(data, "contact_name").strip()
+                or f"Recovered connection {legacy_id}"
+            )
+            created_at = data.get("created_at") or _now()
+            updated_at = data.get("updated_at") or created_at
+
+            # A previous release may already have migrated this row but lacked a
+            # migration map. Recognize it instead of creating a duplicate.
+            existing_contact = connection.execute(
+                """
+                SELECT ct.id AS contact_id, co.id AS company_id
+                FROM contacts ct
+                JOIN companies co ON co.id = ct.company_id
+                WHERE lower(co.company_name) = lower(?)
+                  AND ct.contact_name = ?
+                  AND ct.created_at = ?
+                ORDER BY ct.id
+                LIMIT 1
+                """,
+                (company_name, _legacy_text(data, "contact_name"), created_at),
+            ).fetchone()
+            if existing_contact:
+                company_id = int(existing_contact["company_id"])
+                contact_id = int(existing_contact["contact_id"])
+            else:
+                existing_company = connection.execute(
+                    """
+                    SELECT id FROM companies
+                    WHERE lower(company_name) = lower(?)
+                    ORDER BY CASE WHEN status = 'Closed' THEN 1 ELSE 0 END,
+                             updated_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (company_name,),
+                ).fetchone()
+                if existing_company:
+                    company_id = int(existing_company["id"])
+                else:
+                    company_cursor = connection.execute(
+                        """
+                        INSERT INTO companies (
+                            company_name, company_country, your_company, your_country,
+                            status, outcome_type, estimated_value, currency,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            company_name,
+                            _legacy_text(data, "contact_country"),
+                            _legacy_text(data, "your_company"),
+                            _legacy_text(data, "your_country"),
+                            _legacy_text(data, "status", "Captured") or "Captured",
+                            _legacy_text(data, "outcome_type"),
+                            data.get("estimated_value", 0) or 0,
+                            _legacy_text(data, "currency", "USD") or "USD",
+                            created_at,
+                            updated_at,
+                        ),
+                    )
+                    company_id = int(company_cursor.lastrowid)
+
+                contact_cursor = connection.execute(
+                    """
+                    INSERT INTO contacts (
+                        company_id, contact_name, contact_role, contact_email,
+                        meeting_context, collaboration_idea, next_step, discussion,
+                        confidence_notes_json, raw_notes, source_filename, ai_mode,
+                        poc_plan_json, follow_up_message, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        company_id,
+                        _legacy_text(data, "contact_name"),
+                        _legacy_text(data, "contact_role"),
+                        _legacy_text(data, "contact_email"),
+                        _legacy_text(data, "meeting_context"),
+                        _legacy_text(data, "collaboration_idea"),
+                        _legacy_text(data, "next_step"),
+                        _legacy_text(data, "raw_notes"),
+                        _legacy_text(data, "confidence_notes_json", "[]") or "[]",
+                        _legacy_text(data, "raw_notes"),
+                        _legacy_text(data, "source_filename"),
+                        _legacy_text(data, "ai_mode"),
+                        data.get("poc_plan_json"),
+                        _legacy_text(data, "follow_up_message"),
+                        created_at,
+                        updated_at,
+                    ),
+                )
+                contact_id = int(contact_cursor.lastrowid)
+
+            stage = _legacy_text(data, "status", "Captured") or "Captured"
+            stage_exists = connection.execute(
+                """
+                SELECT 1 FROM stage_history
+                WHERE company_id = ? AND stage = ? AND changed_at = ?
+                """,
+                (company_id, stage, created_at),
+            ).fetchone()
+            if not stage_exists:
+                connection.execute(
+                    """
+                    INSERT INTO stage_history (company_id, stage, changed_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (company_id, stage, created_at),
+                )
+            connection.execute(
+                """
+                INSERT INTO legacy_connection_map (
+                    source_table, legacy_id, company_id, contact_id, migrated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (source_table, legacy_id, company_id, contact_id, _now()),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -207,14 +335,24 @@ def save_profile(
 # Companies and contacts
 # ---------------------------------------------------------------------------
 def find_company_by_name(
-    company_name: str, path: Path = DATABASE_PATH
+    company_name: str,
+    *,
+    include_closed: bool = True,
+    path: Path = DATABASE_PATH,
 ) -> dict[str, Any] | None:
     name = company_name.strip()
     if not name:
         return None
+    closed_clause = "" if include_closed else "AND status <> 'Closed'"
     with _connect(path) as connection:
         row = connection.execute(
-            "SELECT * FROM companies WHERE lower(company_name) = lower(?) LIMIT 1",
+            f"""
+            SELECT * FROM companies
+            WHERE lower(company_name) = lower(?) {closed_clause}
+            ORDER BY CASE WHEN status = 'Closed' THEN 1 ELSE 0 END,
+                     updated_at DESC, id DESC
+            LIMIT 1
+            """,
             (name,),
         ).fetchone()
     return dict(row) if row else None
@@ -315,6 +453,8 @@ def capture_connection(
     existing = find_company_by_name(draft.contact_company, path=path)
     if existing:
         company_id = int(existing["id"])
+        if existing["status"] == "Closed":
+            update_stage(company_id, "Captured", path=path)
     else:
         company_id = create_company(
             company_name=draft.contact_company
@@ -566,9 +706,30 @@ def save_outcome(
         )
 
 
+def _decode_json_object(raw_value: str | None) -> dict[str, Any] | None:
+    if not raw_value:
+        return None
+    try:
+        value = json.loads(raw_value)
+        return value if isinstance(value, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _decode_json_list(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    try:
+        value = json.loads(raw_value)
+        return [str(item) for item in value] if isinstance(value, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
 def _decode_contact(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
-    item["confidence_notes"] = json.loads(item.pop("confidence_notes_json") or "[]")
-    raw_plan = item.pop("poc_plan_json")
-    item["poc_plan"] = json.loads(raw_plan) if raw_plan else None
+    item["confidence_notes"] = _decode_json_list(
+        item.pop("confidence_notes_json", "[]")
+    )
+    item["poc_plan"] = _decode_json_object(item.pop("poc_plan_json", None))
     return item

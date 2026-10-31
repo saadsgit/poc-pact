@@ -5,6 +5,7 @@
 # Runtime data
 data/*.db
 data/*.db-*
+data/backups/
 
 # Python
 __pycache__/

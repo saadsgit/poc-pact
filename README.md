@@ -117,6 +117,8 @@ streamlit run app.py
 ## Data and safety
 
 - Runtime data is stored locally in `data/poc_pact.db` and ignored by Git.
+- Before converting an older database, POC Pact creates a timestamped backup in `data/backups/` and migrates legacy rows individually, so a partially migrated database can recover on the next start.
+- Keep `data/poc_pact.db` when updating the code. Git does not contain runtime contact records and cannot restore a database file that was manually deleted or replaced.
 - Uploaded images are sent to the selected model for analysis but are not saved by this app.
 - Free-tier Gemini API data may be used by Google to improve its products. Do not upload private, confidential, or regulated material.
 - Users must review AI extraction before saving it.
